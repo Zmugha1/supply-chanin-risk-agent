@@ -56,7 +56,7 @@ from agents.crew import run_crew
 NAVY, CREAM, TEAL, CORAL = "#2C3E50", "#FFF8E7", "#4ECDC4", "#FF6B6B"
 
 st.set_page_config(
-    page_title="Data to $$$ | Supply Chain Resilience Agent",
+    page_title="Supply Chain Disruption Risk | Data to $$$",
     page_icon="💰",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -94,12 +94,12 @@ def get_models(df):
 def render_hero():
     html = (
         '<div style="background:#2C3E50;border-radius:16px;padding:32px 40px;margin-bottom:24px;color:#FFF8E7;">'
-        '<h1 style="margin:0 0 8px 0;font-size:2rem;font-weight:700;">Theory-Constrained Supply Chain Resilience Agent</h1>'
-        '<p style="margin:0 0 24px 0;opacity:0.9;">Dr. Data Decision Intelligence — Survival analysis with Christopher & Peck, Bullwhip, Resource Dependence</p>'
+        '<h1 style="margin:0 0 8px 0;font-size:2rem;font-weight:700;">Supply Chain Disruption Risk</h1>'
+        '<p style="margin:0 0 24px 0;opacity:0.9;">See which suppliers are most likely to be disrupted, get early warning for inventory decisions, and record overrides when you have information the model doesn’t. Uses synthetic data only.</p>'
         '<div style="display:flex;flex-wrap:wrap;gap:24px;">'
-        '<div><span style="color:#4ECDC4;font-weight:600;">C-index</span><div style="font-size:1.2rem;font-weight:700;">Target &gt;0.80</div></div>'
-        '<div><span style="color:#4ECDC4;font-weight:600;">Calibration</span><div style="font-size:1.2rem;font-weight:700;">90-day ±4%</div></div>'
-        '<div><span style="color:#4ECDC4;font-weight:600;">Decision velocity</span><div style="font-size:1.2rem;font-weight:700;">72h → 8 min</div></div>'
+        '<div><span style="color:#4ECDC4;font-weight:600;">What it does</span><div style="font-size:1rem;font-weight:600;">Predicts chance of no disruption at 30 / 60 / 90 days</div></div>'
+        '<div><span style="color:#4ECDC4;font-weight:600;">Who it’s for</span><div style="font-size:1rem;font-weight:600;">Procurement & supply chain officers</div></div>'
+        '<div><span style="color:#4ECDC4;font-weight:600;">Data</span><div style="font-size:1rem;font-weight:600;">Synthetic data (600 suppliers)</div></div>'
         "</div></div>"
     )
     st.markdown(html, unsafe_allow_html=True)
@@ -145,7 +145,7 @@ def tab_survival_dashboard(df, cox, rsf, feats):
                 theory_contrib["Bullwhip"] += c * val
             else:
                 theory_contrib["ResourceDependence"] += c * val
-        st.caption("Theory contribution to log-hazard: Resilience (lower=safer), Bullwhip (higher=risk), Resource Dependence.")
+        st.caption("How much each risk driver adds: buffers/redundancy (lower = safer), demand distortion (higher = risk), supplier power (higher = risk).")
     else:
         st.info("Enter a supplier ID from the dataset (e.g. SUP_0001).")
 
@@ -181,7 +181,7 @@ def tab_risk_stratification(df, cox, feats):
     df_disp["risk"] = pd.cut(df_disp["survival_90"], bins=[0, 0.5, 0.8, 1.01], labels=["Red (<50%)", "Yellow (50-80%)", "Green (>80%)"])
     st.dataframe(df_disp.style.background_gradient(subset=["survival_90"], cmap="RdYlGn"), use_container_width=True, hide_index=True)
     alerts = flag_bullwhip_anomalies(df, threshold=2.5)
-    st.caption(f"Bullwhip alerts (demand_amplification > 2.5x): {len(alerts)} suppliers.")
+    st.caption(f"Suppliers with high demand amplification (>2.5×): {len(alerts)} — may need closer monitoring.")
     render_footer_section()
 
 
@@ -229,10 +229,15 @@ def tab_calibration(df, cox, rsf, feats):
 
 def tab_theory_fidelity(cox):
     st.subheader("Theory Fidelity Monitor")
+    st.caption("Checks that each risk driver in the model points the right way (e.g. more buffer → lower risk).")
     coefs = cox.get_coefficients()
     pct, aligned, violations = check_coefficient_signs(coefs)
-    st.metric("Theory Alignment Score", f"{pct:.0f}%", "Target 100%")
-    st.write(get_theory_alignment_message(violations))
+    st.metric("Risk-driver alignment", f"{pct:.0f}%", "Target 100%")
+    msg = get_theory_alignment_message(violations)
+    if "WARNING" in msg:
+        st.warning(msg)
+    else:
+        st.success(msg)
     rows = []
     for f, c in coefs.items():
         if f not in THEORY_FEATURE_CONSTRAINTS:
@@ -262,20 +267,20 @@ def tab_human_override(df, cox):
 
 def render_footer_section():
     st.markdown("---")
-    st.caption("Data to $$$ — Dr. Data Decision Intelligence. Theory-Constrained Supply Chain Resilience Agent.")
+    st.caption("Supply Chain Disruption Risk — Data to $$$.")
 
 
 def tab_how_to_use():
     st.subheader("How to Use This App")
     st.markdown("""
-    This **Theory-Constrained Supply Chain Resilience Agent** helps procurement and supply chain officers 
-    understand **supplier disruption risk** using survival analysis grounded in supply chain theory. 
-    The app uses **synthetic (demo) data only**—no real customer or order data is uploaded or stored.
+    This app helps **procurement and supply chain officers** see **which suppliers are most likely to be disrupted** 
+    and by when. You get a **chance of no disruption** at 30, 60, and 90 days, a **risk list** to prioritize action, 
+    and a way to **record overrides** when your judgment differs from the model. It uses **synthetic data only**—no real data is uploaded or stored.
     """)
     st.markdown("---")
     st.markdown("### What You See on the Home Page")
     st.markdown("""
-    - **Business impact (demo):** Example metrics (e.g. stockout prevention value, alert fatigue reduction, decision velocity). 
+    - **Business impact:** Example metrics (e.g. stockout prevention value, alert fatigue reduction, decision velocity). 
       These are illustrative; real numbers depend on your data and scenario.
     - **Tabs:** Use the tabs below to switch between **Survival Dashboard**, **Risk Stratification**, **Calibration Validation**, 
       **Theory Fidelity Monitor**, **Human Override Console**, and this **How to Use** guide.
@@ -286,9 +291,9 @@ def tab_how_to_use():
     - **Purpose:** See how likely suppliers are to *remain undisrupted* over time (30, 60, 90 days).
     - **Kaplan–Meier (observed):** Non-parametric curve from historical data—*what actually happened* in the sample.
     - **Cox (fitted mean):** Theory-constrained model’s average survival curve.
-    - **Supplier lookup:** Enter a **Supplier ID** (e.g. `SUP_0001`) to get that supplier’s **90-day survival probability** 
-      and a short note on how each theory (Resilience, Bullwhip, Resource Dependence) contributes to their risk.
-    - **How to use it:** Use the chart to judge overall risk level; use the lookup to drill into a specific supplier before making inventory or sourcing decisions.
+    - **Supplier lookup:** Enter a **Supplier ID** (e.g. `SUP_0001`) to get that supplier’s **90-day chance of no disruption** 
+      and how much each risk driver (buffers, demand distortion, supplier power) contributes.
+    - **How to use it:** Use the chart to judge overall risk; use the lookup to drill into a specific supplier before inventory or sourcing decisions.
     """)
     st.markdown("---")
     st.markdown("### Tab 2: Risk Stratification")
@@ -299,25 +304,25 @@ def tab_how_to_use():
       - **Red (&lt;50%):** High risk—consider mitigation or alternatives.
       - **Yellow (50–80%):** Medium risk—monitor closely.
       - **Green (&gt;80%):** Lower risk—still review periodically.
-    - **Bullwhip alerts:** Count of suppliers with demand amplification &gt; 2.5× (Bullwhip Effect theory).
-    - **How to use it:** Sort mentally by survival_90 (table is already sorted). Focus on red and yellow first for inventory positioning or contract discussions.
+    - **High demand amplification:** Count of suppliers with demand amplification &gt; 2.5× — worth monitoring.
+    - **How to use it:** Table is already sorted by risk. Focus on red and yellow first for inventory or contract decisions.
     """)
     st.markdown("---")
     st.markdown("### Tab 3: Calibration Validation")
     st.markdown("""
-    - **Purpose:** Check whether the model’s **predicted probabilities** match **actual outcomes** (model quality, not a single supplier).
-    - **Reliability diagram:** Predicted vs. actual survival at 30 days. Closer to the diagonal “Perfect” line = better calibration.
-    - **C-index:** Discrimination (e.g. target &gt; 0.80). Higher = better at ranking suppliers by risk.
-    - **Brier score (90-day):** Lower = more accurate probability predictions (e.g. target &lt; 0.10 for Cox).
-    - **How to use it:** Use this tab to trust (or question) the model’s numbers. If calibration is poor, treat survival percentages as relative ranks rather than exact probabilities.
+    - **Purpose:** Check whether the model’s **predicted chances** line up with **what actually happened** in the data.
+    - **Reliability diagram:** Predicted vs. actual at 30 days. Closer to the diagonal = predictions you can trust more.
+    - **C-index:** How well the model ranks suppliers by risk (0.5 = random, 1 = perfect). Higher is better; target &gt; 0.80.
+    - **Brier score (90-day):** How accurate the 90-day probabilities are. Lower is better.
+    - **How to use it:** Use this tab to see if the model’s numbers are trustworthy. If calibration is off, treat the percentages as relative risk (who’s worse) rather than exact odds.
     """)
     st.markdown("---")
     st.markdown("### Tab 4: Theory Fidelity Monitor")
     st.markdown("""
-    - **Purpose:** Ensure the model’s **coefficients** align with **supply chain theory** (Resilience, Bullwhip, Resource Dependence).
-    - **Theory Alignment Score:** Percentage of coefficients with the expected sign (target 100%).
-    - **Table:** Each feature, its theory, coefficient, expected sign, and ✓/✗ for alignment.
-    - **How to use it:** If alignment is low or you see warnings, the model may be drifting from theory; consider retraining or reviewing data.
+    - **Purpose:** Check that the model’s **risk drivers** point the right way (e.g. more buffer → lower risk, more demand chaos → higher risk).
+    - **Alignment score:** Share of risk drivers that match expectations (target 100%).
+    - **Table:** Each driver, which concept it comes from, and whether it aligns (✓/✗).
+    - **How to use it:** Low alignment or warnings mean the model may not match intended logic; worth reviewing or retraining.
     """)
     st.markdown("---")
     st.markdown("### Tab 5: Human Override Console")
@@ -332,11 +337,11 @@ def tab_how_to_use():
     st.markdown("""
     | Term | Meaning |
     |------|--------|
-    | **Survival probability (90-day)** | Chance the supplier is *not* disrupted in the next 90 days (0–100%). |
+    | **90-day survival / chance of no disruption** | Probability the supplier is *not* disrupted in the next 90 days (0–100%). |
     | **C-index** | How well the model ranks suppliers by risk (0.5 = random, 1 = perfect). |
-    | **Calibration** | Whether predicted probabilities match actual outcomes. |
-    | **Theory alignment** | Whether model coefficients match what theory says (e.g. higher bullwhip → higher hazard). |
-    | **Resilience / Bullwhip / Resource Dependence** | Three supply chain theories used to build and constrain the model. |
+    | **Calibration** | Whether the model’s predicted chances match what actually happened. |
+    | **Alignment** | Whether each risk driver in the model points the right way (e.g. more buffer → lower risk). |
+    | **Red / Yellow / Green** | Risk bands: &lt;50% = high risk, 50–80% = medium, &gt;80% = lower risk. |
     """)
     st.markdown("---")
     st.markdown("### Data and Limits")
@@ -351,17 +356,17 @@ def tab_how_to_use():
 def main():
     render_hero()
 
-    # Business impact metrics
-    st.subheader("Business impact (demo)")
+    # What the app delivers
+    st.subheader("What this app helps with")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Stockout prevention value", "$4.2M", "Early warning")
+        st.metric("Early warning", "Weeks ahead", "See risk before disruption")
     with col2:
-        st.metric("Alert fatigue reduction", "94%", "Fewer false positives")
+        st.metric("Prioritize suppliers", "Top 20 at risk", "Focus on red and yellow")
     with col3:
-        st.metric("Decision velocity", "8 min", "vs 72 hours manual")
+        st.metric("One supplier lookup", "90-day chance", "Enter Supplier ID in Survival tab")
     with col4:
-        st.metric("Calibration accuracy", "±4%", "90-day predictions")
+        st.metric("Record overrides", "Audit trail", "When you know more than the model")
     st.markdown("---")
 
     df = get_data()
