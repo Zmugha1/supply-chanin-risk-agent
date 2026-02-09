@@ -1,9 +1,9 @@
 # Theory-Constrained Supply Chain Resilience Agent
-# Pinned versions per Design Science Research reproducibility
+# Streamlit Cloud: no crewai (pulls tiktoken/Rust), no scikit-survival (build fails on Py3.13).
+# For local RSF baseline comparison, add: scikit-survival==0.22.0 (use Python 3.10/3.11).
 
 # Core ML & Survival
 lifelines==0.27.7
-scikit-survival==0.22.0
 scikit-learn==1.3.2
 imbalanced-learn==0.11.0
 
@@ -18,6 +18,3 @@ streamlit==1.28.0
 
 # Governance & Tracking
 mlflow==2.8.1
-
-# Multi-Agent
-crewai==0.5.0

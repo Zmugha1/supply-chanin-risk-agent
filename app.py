@@ -33,7 +33,12 @@ from features.theory_feature_engineering import (
     THEORY_FEATURE_CONSTRAINTS,
 )
 from models.theory_constrained_cox import TheoryConstrainedCox
-from models.baseline_rsf import BaselineRSF
+try:
+    from models.baseline_rsf import BaselineRSF
+    _RSF_AVAILABLE = True
+except ImportError:
+    BaselineRSF = None
+    _RSF_AVAILABLE = False
 from governance.calibration_monitor import (
     brier_score_survival,
     integrated_brier_score,
@@ -76,8 +81,13 @@ def get_models(df):
     feats = [c for c in COX_FEATURE_COLUMNS if c in df.columns]
     cox = TheoryConstrainedCox(penalty=0.5)
     cox.fit(df, duration_col="duration_days", event_col="event", feature_columns=feats)
-    rsf = BaselineRSF(n_estimators=100, min_samples_split=20)
-    rsf.fit(df, duration_col="duration_days", event_col="event", feature_columns=feats)
+    rsf = None
+    if _RSF_AVAILABLE and BaselineRSF is not None:
+        try:
+            rsf = BaselineRSF(n_estimators=100, min_samples_split=20)
+            rsf.fit(df, duration_col="duration_days", event_col="event", feature_columns=feats)
+        except Exception:
+            rsf = None
     return cox, rsf, feats
 
 
@@ -105,7 +115,6 @@ def tab_survival_dashboard(df, cox, rsf, feats):
         surv_cox = surv_cox.T.values if surv_cox.shape[0] != len(df) else surv_cox.values
     if surv_cox.ndim == 1:
         surv_cox = np.broadcast_to(surv_cox, (len(df), len(times)))
-    surv_rsf = rsf.predict_survival_function(df, times=times)
 
     # Kaplan-Meier (observed) vs Cox (fitted) - aggregate
     from lifelines import KaplanMeierFitter
@@ -173,7 +182,6 @@ def tab_calibration(df, cox, rsf, feats):
     st.subheader("Calibration Validation")
     times = np.array([30.0, 60.0, 90.0])
     surv_cox = cox.predict_survival_function(df, times=times)
-    surv_rsf = rsf.predict_survival_function(df, times=times)
     if hasattr(surv_cox, "values"):
         surv_cox = surv_cox.values
     if isinstance(surv_cox, pd.DataFrame):
@@ -183,28 +191,38 @@ def tab_calibration(df, cox, rsf, feats):
     # Binary at 30 days: survived 30 days?
     binary_30 = ((df["event"] == 0) | (df["duration_days"] > 30)).astype(float).values
     pred_30_cox = surv_cox[:, 0]
-    pred_30_rsf = surv_rsf[:, 0]
     prob_true_cox, prob_pred_cox, _ = reliability_diagram(binary_30, pred_30_cox, n_bins=8)
-    prob_true_rsf, prob_pred_rsf, _ = reliability_diagram(binary_30, pred_30_rsf, n_bins=8)
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=prob_pred_cox, y=prob_true_cox, name="Theory-Cox", mode="lines+markers", line=dict(color=TEAL)))
-    fig.add_trace(go.Scatter(x=prob_pred_rsf, y=prob_true_rsf, name="RSF baseline", mode="lines+markers", line=dict(color=CORAL)))
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], name="Perfect", line=dict(dash="dash", color="gray")))
-    fig.update_layout(title="30-day survival calibration (Theory-Cox vs RSF)", xaxis_title="Predicted", yaxis_title="Actual", template="plotly_white")
+    if rsf is not None:
+        surv_rsf = rsf.predict_survival_function(df, times=times)
+        pred_30_rsf = surv_rsf[:, 0]
+        prob_true_rsf, prob_pred_rsf, _ = reliability_diagram(binary_30, pred_30_rsf, n_bins=8)
+        fig.add_trace(go.Scatter(x=prob_pred_rsf, y=prob_true_rsf, name="RSF baseline", mode="lines+markers", line=dict(color=CORAL)))
+    fig.update_layout(title="30-day survival calibration (Theory-Cox)" + (" vs RSF" if rsf else ""), xaxis_title="Predicted", yaxis_title="Actual", template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
     brier_cox = brier_score_survival(df["event"].values, df["duration_days"].values, surv_cox[:, 2], 90.0)
-    brier_rsf = brier_score_survival(df["event"].values, df["duration_days"].values, surv_rsf[:, 2], 90.0)
     c_cox = cox.concordance_index_(df)
-    c_rsf = rsf.concordance_index_(df)
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("C-index (Cox)", f"{c_cox:.3f}", "Target >0.80")
     with c2:
-        st.metric("C-index (RSF)", f"{c_rsf:.3f}", "Baseline")
+        if rsf is not None:
+            c_rsf = rsf.concordance_index_(df)
+            st.metric("C-index (RSF)", f"{c_rsf:.3f}", "Baseline")
+        else:
+            st.metric("C-index (RSF)", "—", "Optional (not installed)")
     with c3:
         st.metric("Brier 90d (Cox)", f"{brier_cox:.3f}", "Target <0.10")
     with c4:
-        st.metric("Brier 90d (RSF)", f"{brier_rsf:.3f}", "")
+        if rsf is not None:
+            brier_rsf = brier_score_survival(df["event"].values, df["duration_days"].values, surv_rsf[:, 2], 90.0)
+            st.metric("Brier 90d (RSF)", f"{brier_rsf:.3f}", "")
+        else:
+            st.metric("Brier 90d (RSF)", "—", "Optional")
+    if rsf is None:
+        st.info("RSF baseline is omitted on this environment (scikit-survival not installed). Use Python 3.10/3.11 and add scikit-survival to requirements for full comparison.")
     render_footer_section()
 
 
