@@ -10,7 +10,7 @@ python data/generate_supply_chain_data.py   # optional: regenerate synthetic dat
 streamlit run app.py
 ```
 
-**Streamlit Cloud:** Connect this repo at [share.streamlit.io](https://share.streamlit.io), set **Main file path** to `app.py`, then Deploy.
+**Streamlit Cloud:** Connect this repo at [share.streamlit.io](https://share.streamlit.io), set **Main file path** to `app.py`, then Deploy. If the build fails (e.g. on Python 3.13), open **Advanced settings** and set **Python version** to **3.11**, then redeploy.
 
 ---
 
