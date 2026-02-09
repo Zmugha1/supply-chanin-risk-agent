@@ -1,0 +1,16 @@
+# Data to $$$ demo UX/UI — Dr. Data Decision Intelligence
+# Brand: Cream #FFF8E7, Navy #2C3E50, Teal #4ECDC4, Coral #FF6B6B
+
+[theme]
+primaryColor = "#4ECDC4"
+backgroundColor = "#FFF8E7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#2C3E50"
+font = "sans serif"
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false

@@ -2,6 +2,70 @@
 
 ## Theory-Constrained Supply Chain Risk Agent
 
+### Quick start
+
+```bash
+pip install -r requirements.txt
+python data/generate_supply_chain_data.py   # optional: regenerate synthetic data
+streamlit run app.py
+```
+
+**Streamlit Cloud:** Connect this repo at [share.streamlit.io](https://share.streamlit.io), set **Main file path** to `app.py`, then Deploy.
+
+---
+
+### Theory-to-feature mapping
+
+| Theory | Feature | Expected coefficient sign | Rationale |
+|--------|---------|-----------------------------|-----------|
+| **Supply Chain Resilience** (Christopher & Peck 2004) | `buffer_efficiency` | − | Higher buffer → lower hazard |
+| | `network_redundancy` | − | More alternatives → lower hazard |
+| | `visibility_depth` | − | Deeper visibility → lower hazard |
+| **Bullwhip Effect** (Forrester 1961; Lee et al. 1997) | `demand_amplification_ratio` | + | Amplification → higher hazard |
+| | `order_batching_irregularity` | + | Irregularity → higher hazard |
+| | `forecast_gaming_index` | + | Gaming → higher hazard |
+| | `bullwhip_amplitude` | + | Amplitude → higher hazard |
+| | `temporal_convergence_index` | − | Better sync → lower hazard |
+| **Resource Dependence** (Pfeffer & Salancik 1978) | `asymmetric_dependence` | + | Asymmetry → higher hazard |
+| | `resource_substitutability` | − | Substitutability → lower hazard |
+| | `contractual_safeguards` | − | Safeguards → lower hazard |
+| | `cascade_risk_score` | + | Cascade risk → higher hazard |
+
+### Survival analysis rationale
+
+- **Primary model:** Cox proportional hazards (lifelines) with L2 regularization. Chosen for small *n*=600 (Grinsztajn et al. 2022), interpretable hazard ratios (Rudin 2019), calibration (Guo et al. 2017), and native right-censoring.
+- **Baseline:** Random Survival Forest (scikit-survival), regularized, to demonstrate theory-constrained Cox superiority on small data.
+- **Metrics:** C-index (discrimination), Integrated Brier Score and calibration curves (calibration), theory alignment % (fidelity).
+
+### Governance architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Theory-Constrained Supply Chain Agent                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Data (synthetic) → Theory features → Cox PH / RSF → Survival curves     │
+├──────────────┬──────────────┬──────────────┬──────────────┬──────────────┤
+│ Interpret-   │ Human-in-    │ Theoretical │ Calibration  │ Auditability │
+│ ability      │ the-Loop     │ Fidelity    │ Governance   │              │
+│ Survival     │ Override     │ Coefficient │ Brier score, │ MLflow logs, │
+│ curves +     │ console,     │ sign checks │ reliability  │ lineage      │
+│ theory zones │ MLflow log   │ alignment %  │ diagrams     │ SKU→decision  │
+└──────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
+```
+
+### Repo structure
+
+| Path | Purpose |
+|------|---------|
+| `app.py` | Streamlit UI (5 tabs: Survival, Risk, Calibration, Theory Fidelity, Human Override) |
+| `agents/` | BullwhipAnalyst, ResilienceAssessor, SurvivalPredictor, HumanCoordinationAgent |
+| `models/` | Theory-constrained Cox (lifelines), baseline RSF (scikit-survival) |
+| `features/` | Theory feature engineering (Resilience, Bullwhip, Resource Dependence) |
+| `governance/` | Calibration monitor, theoretical fidelity, MLflow tracker |
+| `data/` | Synthetic supply chain data generator (n=600, 15% failure, right-censored) |
+
+---
+
 ### Situation
 
 A defense logistics operation managing 12,000+ critical SKUs across multi-tier supplier networks faced severe data scarcity (only 600 historical disruption events) and catastrophic model overconfidence. Black-box survival models (Random Survival Forests) predicted 98% supplier reliability at 30 days when actual failure rates were 34%, creating mission-critical shortages. Existing anomaly detection flagged 500+ false positives daily, overwhelming analysts with "alert fatigue" while missing cascading failure patterns (Tier 2 suppliers causing Tier 1 delays). Post-hoc SHAP explanations proved insufficient for supply chain officers who needed to understand why a supplier was risky within the context of network resilience theory—not feature importance approximations.
