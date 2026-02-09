@@ -108,13 +108,7 @@ def render_hero():
 def tab_survival_dashboard(df, cox, rsf, feats):
     st.subheader("Survival Dashboard")
     times = np.array([30.0, 60.0, 90.0])
-    surv_cox = cox.predict_survival_function(df, times=times)
-    if hasattr(surv_cox, "values"):
-        surv_cox = surv_cox.values
-    if isinstance(surv_cox, pd.DataFrame):
-        surv_cox = surv_cox.T.values if surv_cox.shape[0] != len(df) else surv_cox.values
-    if surv_cox.ndim == 1:
-        surv_cox = np.broadcast_to(surv_cox, (len(df), len(times)))
+    surv_cox = _survival_matrix(cox.predict_survival_function(df, times=times), len(df), len(times))
 
     # Kaplan-Meier (observed) vs Cox (fitted) - aggregate
     from lifelines import KaplanMeierFitter
@@ -134,8 +128,8 @@ def tab_survival_dashboard(df, cox, rsf, feats):
     # Individual supplier lookup
     sid = st.text_input("Supplier ID (e.g. SUP_0001)", value="SUP_0001", key="surv_lookup")
     if sid in df["supplier_id"].astype(str).values:
-        idx = df.index[df["supplier_id"].astype(str) == sid][0]
-        s90 = float(np.clip(surv_cox[idx, 2], 0, 1))
+        idx_loc = np.where(df["supplier_id"].astype(str).values == sid)[0][0]
+        s90 = float(np.clip(surv_cox[idx_loc, 2], 0, 1))
         st.metric("90-day survival probability", f"{s90:.1%}", "")
         # Theory contribution (hazard ratio contribution from each theory)
         coefs = cox.get_coefficients()
@@ -144,12 +138,13 @@ def tab_survival_dashboard(df, cox, rsf, feats):
             if f not in THEORY_FEATURE_CONSTRAINTS:
                 continue
             t = THEORY_FEATURE_CONSTRAINTS[f]["theory"]
+            val = df.iloc[idx_loc][f] if f in df.columns else 0
             if t == "Resilience":
-                theory_contrib["Resilience"] += c * (df.loc[idx, f] if f in df.columns else 0)
+                theory_contrib["Resilience"] += c * val
             elif "Bullwhip" in t:
-                theory_contrib["Bullwhip"] += c * (df.loc[idx, f] if f in df.columns else 0)
+                theory_contrib["Bullwhip"] += c * val
             else:
-                theory_contrib["ResourceDependence"] += c * (df.loc[idx, f] if f in df.columns else 0)
+                theory_contrib["ResourceDependence"] += c * val
         st.caption("Theory contribution to log-hazard: Resilience (lower=safer), Bullwhip (higher=risk), Resource Dependence.")
     else:
         st.info("Enter a supplier ID from the dataset (e.g. SUP_0001).")
@@ -157,19 +152,31 @@ def tab_survival_dashboard(df, cox, rsf, feats):
     render_footer_section()
 
 
-def tab_risk_stratification(df, cox, feats):
-    st.subheader("Risk Stratification")
-    times = np.array([30.0, 60.0, 90.0])
-    surv = cox.predict_survival_function(df, times=times)
+def _survival_matrix(surv, n_samples: int, n_times: int = 3):
+    """Return array shape (n_samples, n_times) so surv[:, 2] is 90-day for each sample."""
     if hasattr(surv, "values"):
         surv = surv.values
     if isinstance(surv, pd.DataFrame):
-        surv = surv.T.values if surv.shape[0] != len(df) else surv.values
+        surv = surv.values
+    if not isinstance(surv, np.ndarray):
+        surv = np.asarray(surv)
     if surv.ndim == 1:
-        surv = np.broadcast_to(surv, (len(df), len(times)))
-    s90 = surv[:, 2]
+        surv = np.broadcast_to(surv, (n_samples, n_times))
+    elif surv.shape[0] == n_times and surv.shape[1] == n_samples:
+        surv = surv.T
+    elif surv.shape[0] != n_samples:
+        surv = surv.T
+    return np.asarray(surv, dtype=float)[:n_samples, :n_times]
+
+
+def tab_risk_stratification(df, cox, feats):
+    st.subheader("Risk Stratification")
+    times = np.array([30.0, 60.0, 90.0])
+    surv_raw = cox.predict_survival_function(df, times=times)
+    surv = _survival_matrix(surv_raw, len(df), len(times))
+    s90 = np.asarray(surv[:, 2]).ravel()
     df_disp = df[["supplier_id", "tier", "demand_amplification_ratio", "network_redundancy"]].copy()
-    df_disp["survival_90"] = s90
+    df_disp["survival_90"] = s90[: len(df_disp)]
     df_disp = df_disp.sort_values("survival_90").head(20)
     df_disp["risk"] = pd.cut(df_disp["survival_90"], bins=[0, 0.5, 0.8, 1.01], labels=["Red (<50%)", "Yellow (50-80%)", "Green (>80%)"])
     st.dataframe(df_disp.style.background_gradient(subset=["survival_90"], cmap="RdYlGn"), use_container_width=True, hide_index=True)
@@ -181,13 +188,7 @@ def tab_risk_stratification(df, cox, feats):
 def tab_calibration(df, cox, rsf, feats):
     st.subheader("Calibration Validation")
     times = np.array([30.0, 60.0, 90.0])
-    surv_cox = cox.predict_survival_function(df, times=times)
-    if hasattr(surv_cox, "values"):
-        surv_cox = surv_cox.values
-    if isinstance(surv_cox, pd.DataFrame):
-        surv_cox = surv_cox.T.values if surv_cox.shape[0] != len(df) else surv_cox.values
-    if surv_cox.ndim == 1:
-        surv_cox = np.broadcast_to(surv_cox, (len(df), len(times)))
+    surv_cox = _survival_matrix(cox.predict_survival_function(df, times=times), len(df), len(times))
     # Binary at 30 days: survived 30 days?
     binary_30 = ((df["event"] == 0) | (df["duration_days"] > 30)).astype(float).values
     pred_30_cox = surv_cox[:, 0]
@@ -264,6 +265,89 @@ def render_footer_section():
     st.caption("Data to $$$ — Dr. Data Decision Intelligence. Theory-Constrained Supply Chain Resilience Agent.")
 
 
+def tab_how_to_use():
+    st.subheader("How to Use This App")
+    st.markdown("""
+    This **Theory-Constrained Supply Chain Resilience Agent** helps procurement and supply chain officers 
+    understand **supplier disruption risk** using survival analysis grounded in supply chain theory. 
+    The app uses **synthetic (demo) data only**—no real customer or order data is uploaded or stored.
+    """)
+    st.markdown("---")
+    st.markdown("### What You See on the Home Page")
+    st.markdown("""
+    - **Business impact (demo):** Example metrics (e.g. stockout prevention value, alert fatigue reduction, decision velocity). 
+      These are illustrative; real numbers depend on your data and scenario.
+    - **Tabs:** Use the tabs below to switch between **Survival Dashboard**, **Risk Stratification**, **Calibration Validation**, 
+      **Theory Fidelity Monitor**, **Human Override Console**, and this **How to Use** guide.
+    """)
+    st.markdown("---")
+    st.markdown("### Tab 1: Survival Dashboard")
+    st.markdown("""
+    - **Purpose:** See how likely suppliers are to *remain undisrupted* over time (30, 60, 90 days).
+    - **Kaplan–Meier (observed):** Non-parametric curve from historical data—*what actually happened* in the sample.
+    - **Cox (fitted mean):** Theory-constrained model’s average survival curve.
+    - **Supplier lookup:** Enter a **Supplier ID** (e.g. `SUP_0001`) to get that supplier’s **90-day survival probability** 
+      and a short note on how each theory (Resilience, Bullwhip, Resource Dependence) contributes to their risk.
+    - **How to use it:** Use the chart to judge overall risk level; use the lookup to drill into a specific supplier before making inventory or sourcing decisions.
+    """)
+    st.markdown("---")
+    st.markdown("### Tab 2: Risk Stratification")
+    st.markdown("""
+    - **Purpose:** List suppliers by **highest risk** (lowest 90-day survival) so you can prioritize attention.
+    - **Table:** Top 20 at-risk suppliers with **Supplier ID**, **Tier**, **Demand amplification ratio**, **Network redundancy**, 
+      and **90-day survival** with color coding:
+      - **Red (&lt;50%):** High risk—consider mitigation or alternatives.
+      - **Yellow (50–80%):** Medium risk—monitor closely.
+      - **Green (&gt;80%):** Lower risk—still review periodically.
+    - **Bullwhip alerts:** Count of suppliers with demand amplification &gt; 2.5× (Bullwhip Effect theory).
+    - **How to use it:** Sort mentally by survival_90 (table is already sorted). Focus on red and yellow first for inventory positioning or contract discussions.
+    """)
+    st.markdown("---")
+    st.markdown("### Tab 3: Calibration Validation")
+    st.markdown("""
+    - **Purpose:** Check whether the model’s **predicted probabilities** match **actual outcomes** (model quality, not a single supplier).
+    - **Reliability diagram:** Predicted vs. actual survival at 30 days. Closer to the diagonal “Perfect” line = better calibration.
+    - **C-index:** Discrimination (e.g. target &gt; 0.80). Higher = better at ranking suppliers by risk.
+    - **Brier score (90-day):** Lower = more accurate probability predictions (e.g. target &lt; 0.10 for Cox).
+    - **How to use it:** Use this tab to trust (or question) the model’s numbers. If calibration is poor, treat survival percentages as relative ranks rather than exact probabilities.
+    """)
+    st.markdown("---")
+    st.markdown("### Tab 4: Theory Fidelity Monitor")
+    st.markdown("""
+    - **Purpose:** Ensure the model’s **coefficients** align with **supply chain theory** (Resilience, Bullwhip, Resource Dependence).
+    - **Theory Alignment Score:** Percentage of coefficients with the expected sign (target 100%).
+    - **Table:** Each feature, its theory, coefficient, expected sign, and ✓/✗ for alignment.
+    - **How to use it:** If alignment is low or you see warnings, the model may be drifting from theory; consider retraining or reviewing data.
+    """)
+    st.markdown("---")
+    st.markdown("### Tab 5: Human Override Console")
+    st.markdown("""
+    - **Purpose:** Record **human judgment** when you override the model (e.g. geopolitical intel, new contract, quality issue).
+    - **Fields:** Supplier ID, override 90-day survival probability (slider), reason (dropdown), optional notes.
+    - **Submit override:** Saves the override for audit (e.g. MLflow when available). The app does not change the underlying model; it records your decision.
+    - **How to use it:** When you disagree with the model for a specific supplier, enter the override and reason so the decision is documented and traceable.
+    """)
+    st.markdown("---")
+    st.markdown("### Key Terms (Plain Language)")
+    st.markdown("""
+    | Term | Meaning |
+    |------|--------|
+    | **Survival probability (90-day)** | Chance the supplier is *not* disrupted in the next 90 days (0–100%). |
+    | **C-index** | How well the model ranks suppliers by risk (0.5 = random, 1 = perfect). |
+    | **Calibration** | Whether predicted probabilities match actual outcomes. |
+    | **Theory alignment** | Whether model coefficients match what theory says (e.g. higher bullwhip → higher hazard). |
+    | **Resilience / Bullwhip / Resource Dependence** | Three supply chain theories used to build and constrain the model. |
+    """)
+    st.markdown("---")
+    st.markdown("### Data and Limits")
+    st.markdown("""
+    - The app runs on **synthetic data** (600 supplier relationships, 15% disruption rate, 85% right-censored at 2 years).
+    - All metrics and charts are for **demonstration and learning**. They are not guarantees for real supply chains.
+    - For production use, connect your own data and models under your governance and compliance policies.
+    """)
+    render_footer_section()
+
+
 def main():
     render_hero()
 
@@ -283,7 +367,8 @@ def main():
     df = get_data()
     cox, rsf, feats = get_models(df)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "How to Use",
         "Survival Dashboard",
         "Risk Stratification",
         "Calibration Validation",
@@ -291,14 +376,16 @@ def main():
         "Human Override Console",
     ])
     with tab1:
-        tab_survival_dashboard(df, cox, rsf, feats)
+        tab_how_to_use()
     with tab2:
-        tab_risk_stratification(df, cox, feats)
+        tab_survival_dashboard(df, cox, rsf, feats)
     with tab3:
-        tab_calibration(df, cox, rsf, feats)
+        tab_risk_stratification(df, cox, feats)
     with tab4:
-        tab_theory_fidelity(cox)
+        tab_calibration(df, cox, rsf, feats)
     with tab5:
+        tab_theory_fidelity(cox)
+    with tab6:
         tab_human_override(df, cox)
 
 
